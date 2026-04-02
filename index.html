@@ -361,16 +361,40 @@ Reglas Cruciales MÁXIMAS:
                     }
                 };
 
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestBody)
-                });
-
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.error?.message || "Error al conectar con la API de Gemini.");
+                // Función con reintento automático si se excede la cuota
+                async function fetchWithRetry(url, options, maxRetries = 2) {
+                    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                        const res = await fetch(url, options);
+                        if (res.ok) return res;
+                        
+                        const errData = await res.json();
+                        const errMsg = errData.error?.message || "";
+                        
+                        // Si es error de cuota y aún quedan reintentos, esperar y reintentar
+                        if (res.status === 429 && attempt < maxRetries) {
+                            const waitMatch = errMsg.match(/retry in ([\d.]+)s/i);
+                            const waitSec = waitMatch ? Math.ceil(parseFloat(waitMatch[1])) : 60;
+                            
+                            const loadingText = document.querySelector('#loadingIndicator span');
+                            for (let s = waitSec; s > 0; s--) {
+                                loadingText.textContent = `⏳ Cuota temporal alcanzada. Reintentando en ${s}s...`;
+                                await new Promise(r => setTimeout(r, 1000));
+                            }
+                            loadingText.textContent = "Analizando y preparando respuesta...";
+                            continue;
+                        }
+                        throw new Error(errMsg || "Error al conectar con la API de Gemini.");
+                    }
                 }
+
+                const response = await fetchWithRetry(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody)
+                    }
+                );
 
                 const data = await response.json();
                 let responseText = "";
